@@ -14,6 +14,16 @@ export interface ProviderConfig {
 	label?: string;
 	/** GitLab base URL (e.g. https://gitlab.example.com). Leave empty for gitlab.com */
 	baseUrl?: string;
+	/** Sync issues/PRs involving the authenticated user across all repos */
+	syncUserItems?: boolean;
+	/** Which items to fetch: "assigned" (default), "created", or "mentioned" (GitHub only) */
+	userItemsFilter?: "assigned" | "created" | "mentioned";
+	/** Profile to use for user-scoped items (defaults to "default") */
+	userItemsProfileId?: string;
+	/** Whether to sync issues (default: true) */
+	userItemsTrackIssues?: boolean;
+	/** Whether to sync pull requests / merge requests (default: true) */
+	userItemsTrackPRs?: boolean;
 }
 
 // Profile types

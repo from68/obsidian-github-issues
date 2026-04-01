@@ -2355,6 +2355,99 @@ export class IssueTrackerSettingTab extends PluginSettingTab {
 			infoLink.target = "_blank";
 		}
 
+		// --- Sync my items ---
+		new Setting(cardBody)
+			.setName("Sync my issues & pull requests")
+			.setDesc(
+				"Automatically fetch issues and pull requests that involve you across all repositories, without needing to add them one by one.",
+			)
+			.addToggle((toggle) =>
+				toggle
+					.setValue(config.syncUserItems ?? false)
+					.onChange(async (value) => {
+						config.syncUserItems = value;
+						await this.plugin.saveSettings();
+						this.display();
+					}),
+			);
+
+		if (config.syncUserItems) {
+			// Filter dropdown
+			const filterSetting = new Setting(cardBody)
+				.setName("What to sync")
+				.setDesc(
+					"Which items to fetch: assigned to you, created by you, or (GitHub only) items where you are mentioned.",
+				)
+				.addDropdown((dropdown) => {
+					dropdown.addOption("assigned", "Assigned to me");
+					dropdown.addOption("created", "Created by me");
+					if (config.type === "github") {
+						dropdown.addOption("mentioned", "Mentioned");
+					}
+					dropdown
+						.setValue(config.userItemsFilter ?? "assigned")
+						.onChange(async (value) => {
+							config.userItemsFilter = value as
+								| "assigned"
+								| "created"
+								| "mentioned";
+							await this.plugin.saveSettings();
+						});
+				});
+			labelUpdaters.push(() => {
+				filterSetting.setDesc(
+					"Which items to fetch: assigned to you, created by you, or (GitHub only) items where you are mentioned.",
+				);
+			});
+
+			// Track issues toggle
+			new Setting(cardBody)
+				.setName("Sync issues")
+				.addToggle((toggle) =>
+					toggle
+						.setValue(config.userItemsTrackIssues !== false)
+						.onChange(async (value) => {
+							config.userItemsTrackIssues = value;
+							await this.plugin.saveSettings();
+						}),
+				);
+
+			// Track PRs/MRs toggle
+			new Setting(cardBody)
+				.setName(
+					config.type === "gitlab"
+						? "Sync merge requests"
+						: "Sync pull requests",
+				)
+				.addToggle((toggle) =>
+					toggle
+						.setValue(config.userItemsTrackPRs !== false)
+						.onChange(async (value) => {
+							config.userItemsTrackPRs = value;
+							await this.plugin.saveSettings();
+						}),
+				);
+
+			// Profile selector
+			const userItemsProfiles = getRepositoryProfiles(this.plugin.settings);
+			new Setting(cardBody)
+				.setName("Settings profile")
+				.setDesc(
+					"Profile that controls folders, templates, and filters for synced items.",
+				)
+				.addDropdown((dropdown) => {
+					for (const profile of userItemsProfiles) {
+						dropdown.addOption(profile.id, profile.name);
+					}
+					dropdown
+						.setValue(config.userItemsProfileId ?? "default")
+						.onChange(async (value) => {
+							config.userItemsProfileId = value;
+							await this.plugin.saveSettings();
+						});
+				});
+		}
+
 		// Remove button at the bottom of the card body
 		if (isRemovable) {
 			new Setting(cardBody)

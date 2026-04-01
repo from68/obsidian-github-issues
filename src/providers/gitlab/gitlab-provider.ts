@@ -501,6 +501,117 @@ export class GitLabProvider implements IssueProvider {
 	}
 
 	/**
+	 * Fetch issues across all accessible projects for the authenticated user.
+	 * @param filter "assigned" or "created" ("mentioned" falls back to "assigned" on GitLab)
+	 */
+	public async fetchUserIssues(
+		filter: string,
+		includeClosed: boolean,
+		daysToKeepClosed: number,
+	): Promise<any[]> {
+		const scope = filter === "created" ? "created_by_me" : "assigned_to_me";
+		const state = includeClosed ? "all" : "opened";
+
+		try {
+			const items = await this.fetchPaginated<any>("/issues", { scope, state });
+
+			let normalized = items.map((issue: any) => {
+				const repoFullName =
+					issue.references?.full?.split("#")[0] ??
+					this.repoFromWebUrl(issue.web_url);
+				return { ...this.normalizeIssue(issue), _repoFullName: repoFullName };
+			});
+
+			if (includeClosed) {
+				const cutoff = new Date();
+				cutoff.setDate(cutoff.getDate() - daysToKeepClosed);
+				normalized = normalized.filter((issue: any) => {
+					if (issue.state === "open") return true;
+					if (issue.closed_at) return new Date(issue.closed_at) > cutoff;
+					return false;
+				});
+			}
+
+			return normalized;
+		} catch (error) {
+			this.noticeManager.error("Error fetching user issues from GitLab", error);
+			return [];
+		}
+	}
+
+	/**
+	 * Fetch merge requests across all accessible projects for the authenticated user.
+	 * @param filter "assigned" or "created"
+	 */
+	public async fetchUserPullRequests(
+		filter: string,
+		includeClosed: boolean,
+		daysToKeepClosed: number,
+	): Promise<any[]> {
+		const scope = filter === "created" ? "created_by_me" : "assigned_to_me";
+		const state = includeClosed ? "all" : "opened";
+
+		try {
+			const items = await this.fetchPaginated<any>("/merge_requests", { scope, state });
+
+			let normalized = items.map((mr: any) => {
+				const repoFullName =
+					mr.references?.full?.split("!")[0] ??
+					this.repoFromWebUrl(mr.web_url);
+				return {
+					...mr,
+					html_url: mr.web_url,
+					number: mr.iid,
+					user: { login: mr.author?.username ?? "" },
+					assignees: (mr.assignees || []).map((a: any) => ({ login: a.username ?? "" })),
+					requested_reviewers: (mr.reviewers || []).map((r: any) => ({ login: r.username ?? "" })),
+					labels: (mr.labels || []).map((l: string) => ({ name: l })),
+					body: mr.description,
+					state:
+						mr.state === "opened"
+							? "open"
+							: mr.state === "merged"
+								? "closed"
+								: mr.state,
+					merged_at: mr.merged_at,
+					head: mr.source_branch ? { ref: mr.source_branch } : undefined,
+					base: mr.target_branch ? { ref: mr.target_branch } : undefined,
+					draft: mr.draft || mr.work_in_progress || false,
+					_repoFullName: repoFullName,
+				};
+			});
+
+			if (includeClosed) {
+				const cutoff = new Date();
+				cutoff.setDate(cutoff.getDate() - daysToKeepClosed);
+				normalized = normalized.filter((mr: any) => {
+					if (mr.state === "open") return true;
+					const closedAt = mr.closed_at || mr.merged_at;
+					if (closedAt) return new Date(closedAt) > cutoff;
+					return false;
+				});
+			}
+
+			return normalized;
+		} catch (error) {
+			this.noticeManager.error("Error fetching user MRs from GitLab", error);
+			return [];
+		}
+	}
+
+	/** Extract "owner/repo" path from a GitLab web URL */
+	private repoFromWebUrl(webUrl: string): string {
+		try {
+			const url = new URL(webUrl);
+			// path is like /owner/repo/-/issues/123 or /owner/repo/-/merge_requests/1
+			const parts = url.pathname.split("/-/")[0].replace(/^\//, "");
+			return parts;
+		} catch {
+			return "";
+		}
+	}
+
+	/**
 	 * Fetch linked issues treated as sub-issues / children.
 	 * Uses the GitLab GraphQL API to fetch child work items from the hierarchy widget.
 	 * Falls back to the REST Issue Links API for older GitLab versions.
