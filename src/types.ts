@@ -12,7 +12,7 @@ export interface ProviderConfig {
 	secretTokenName: string;
 	/** Display name shown in the UI (auto-generated if empty) */
 	label?: string;
-	/** GitLab base URL (e.g. https://gitlab.example.com). Leave empty for gitlab.com */
+	/** Base URL for self-hosted instances (e.g. https://gitlab.example.com or https://github.example.com). Leave empty for cloud-hosted services. */
 	baseUrl?: string;
 }
 

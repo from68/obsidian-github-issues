@@ -31,6 +31,7 @@ export class GitHubProvider implements IssueProvider {
 	private currentUser: string = "";
 	private tokenGetter: () => string;
 	private configId: string;
+	private baseUrl?: string;
 
 	constructor(
 		private settings: IssueTrackerSettings,
@@ -42,6 +43,7 @@ export class GitHubProvider implements IssueProvider {
 		this.id = providerConfig.id;
 		this.configId = providerConfig.id;
 		this.displayName = providerConfig.label || "GitHub";
+		this.baseUrl = providerConfig.baseUrl?.replace(/\/$/, "") || undefined;
 		this.initializeClient();
 	}
 
@@ -65,9 +67,19 @@ export class GitHubProvider implements IssueProvider {
 			return;
 		}
 
-		this.octokit = new Octokit({
-			auth: authToken,
-		});
+		// Re-read baseUrl from settings in case it changed
+		const providerConfig = this.settings.providers?.find(
+			(p) => p.id === this.configId,
+		);
+		if (providerConfig) {
+			this.baseUrl = providerConfig.baseUrl?.replace(/\/$/, "") || undefined;
+		}
+
+		this.octokit = new Octokit(
+			this.baseUrl
+				? { auth: authToken, baseUrl: `${this.baseUrl}/api/v3` }
+				: { auth: authToken },
+		);
 	}
 
 	/**

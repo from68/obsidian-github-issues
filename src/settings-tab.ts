@@ -52,7 +52,19 @@ export class IssueTrackerSettingTab extends PluginSettingTab {
 	/** Get display label for a provider config */
 	private getProviderLabel(config: ProviderConfig): string {
 		if (config.label) return config.label;
-		if (config.type === "github") return "GitHub";
+		if (config.type === "github") {
+			if (config.id === "github") return "GitHub";
+			// GitHub Enterprise instance
+			if (config.baseUrl) {
+				try {
+					const url = new URL(config.baseUrl);
+					return `GitHub Enterprise (${url.hostname})`;
+				} catch {
+					return `GitHub Enterprise (${config.baseUrl})`;
+				}
+			}
+			return "GitHub Enterprise";
+		}
 		if (config.type === "gitlab") {
 			// If there are multiple GitLab instances, add the base URL
 			const gitlabCount = this.plugin.settings.providers.filter(
@@ -238,6 +250,30 @@ export class IssueTrackerSettingTab extends PluginSettingTab {
 			const newConfig: ProviderConfig = {
 				id: newId,
 				type: "gitlab",
+				enabled: false,
+				token: "",
+				useSecretStorage: false,
+				secretTokenName: "",
+				baseUrl: "",
+			};
+			this.plugin.settings.providers.push(newConfig);
+			await this.plugin.saveSettings();
+			this.display();
+		};
+
+		const addGHEButton = addInstanceContainer.createEl("button", {
+			cls: "github-issues-add-instance-button",
+		});
+		const addGHEIcon = addGHEButton.createSpan({
+			cls: "github-issues-button-icon",
+		});
+		setIcon(addGHEIcon, "plus");
+		addGHEButton.createSpan({ text: "Add GitHub Enterprise Instance" });
+		addGHEButton.onclick = async () => {
+			const newId = this.generateProviderId("github");
+			const newConfig: ProviderConfig = {
+				id: newId,
+				type: "github",
 				enabled: false,
 				token: "",
 				useSecretStorage: false,
@@ -2100,9 +2136,10 @@ export class IssueTrackerSettingTab extends PluginSettingTab {
 	): void {
 		const getLabel = () => this.getProviderLabel(config);
 		const isRemovable =
-			config.type === "gitlab" &&
-			this.plugin.settings.providers.filter((p) => p.type === "gitlab")
-				.length > 1;
+			(config.type === "gitlab" &&
+				this.plugin.settings.providers.filter((p) => p.type === "gitlab")
+					.length > 1) ||
+			(config.type === "github" && config.id !== "github");
 
 		// Each provider gets its own card
 		const providerCard = container.createDiv({
@@ -2178,16 +2215,23 @@ export class IssueTrackerSettingTab extends PluginSettingTab {
 			}
 		});
 
-		// GitLab base URL
-		if (config.type === "gitlab") {
+		// Base URL and display name for self-hosted instances (GitLab or GitHub Enterprise)
+		const isGHE = config.type === "github" && config.id !== "github";
+		if (config.type === "gitlab" || isGHE) {
 			new Setting(cardBody)
 				.setName("Base URL")
 				.setDesc(
-					"Leave empty for gitlab.com, or enter your self-hosted GitLab URL",
+					isGHE
+						? "Enter your GitHub Enterprise URL (e.g. https://github.example.com)"
+						: "Leave empty for gitlab.com, or enter your self-hosted GitLab URL",
 				)
 				.addText((text) =>
 					text
-						.setPlaceholder("https://gitlab.example.com")
+						.setPlaceholder(
+							isGHE
+								? "https://github.example.com"
+								: "https://gitlab.example.com",
+						)
 						.setValue(config.baseUrl || "")
 						.onChange(async (value) => {
 							config.baseUrl = value.trim() || undefined;
@@ -2360,7 +2404,7 @@ export class IssueTrackerSettingTab extends PluginSettingTab {
 			new Setting(cardBody)
 				.setName("Remove this instance")
 				.setDesc(
-					"Permanently removes this GitLab instance from your settings.",
+					`Permanently removes this ${getLabel()} instance from your settings.`,
 				)
 				.addButton((button) => {
 					button
