@@ -254,6 +254,99 @@ export class GitHubProvider implements IssueProvider {
 	}
 
 	/**
+	 * Fetch all issues across repos for the authenticated user.
+	 * Uses a short-lived cache shared with fetchUserPullRequests to avoid duplicate API calls.
+	 */
+	public async fetchUserIssues(
+		filter: string,
+		includeClosed: boolean,
+		daysToKeepClosed: number,
+	): Promise<any[]> {
+		const all = await this.fetchUserItemsRaw(filter, includeClosed, daysToKeepClosed);
+		return all.filter((item: any) => !item.pull_request);
+	}
+
+	/**
+	 * Fetch all pull requests across repos for the authenticated user.
+	 * Uses a short-lived cache shared with fetchUserIssues to avoid duplicate API calls.
+	 */
+	public async fetchUserPullRequests(
+		filter: string,
+		includeClosed: boolean,
+		daysToKeepClosed: number,
+	): Promise<any[]> {
+		const all = await this.fetchUserItemsRaw(filter, includeClosed, daysToKeepClosed);
+		return all.filter((item: any) => !!item.pull_request);
+	}
+
+	private _userItemsCache: { filter: string; includeClosed: boolean; items: any[] } | null = null;
+
+	private async fetchUserItemsRaw(
+		filter: string,
+		includeClosed: boolean,
+		daysToKeepClosed: number,
+	): Promise<any[]> {
+		if (
+			this._userItemsCache &&
+			this._userItemsCache.filter === filter &&
+			this._userItemsCache.includeClosed === includeClosed
+		) {
+			return this._userItemsCache.items;
+		}
+
+		if (!this.octokit) return [];
+
+		const state = includeClosed ? "all" : "open";
+		const githubFilter =
+			filter === "created" ? "created" : filter === "mentioned" ? "mentioned" : "assigned";
+
+		try {
+			let allItems: any[] = [];
+			let page = 1;
+			let hasMore = true;
+
+			while (hasMore) {
+				const response = await this.octokit.rest.issues.listForAuthenticatedUser({
+					filter: githubFilter,
+					state,
+					per_page: 100,
+					page,
+				});
+
+				const items = response.data.map((item: any) => ({
+					...item,
+					_repoFullName: item.repository?.full_name ?? "",
+				}));
+
+				allItems = [...allItems, ...items];
+				hasMore = response.data.length === 100;
+				page++;
+			}
+
+			if (includeClosed) {
+				const cutoff = new Date();
+				cutoff.setDate(cutoff.getDate() - daysToKeepClosed);
+				allItems = allItems.filter((item: any) => {
+					if (item.state === "open") return true;
+					if (item.closed_at) return new Date(item.closed_at) > cutoff;
+					return false;
+				});
+			}
+
+			this._userItemsCache = { filter, includeClosed, items: allItems };
+			return allItems;
+		} catch (error) {
+			this.noticeManager.error("Error fetching user items from GitHub", error);
+			return [];
+		}
+	}
+
+	/** Clear the user items cache (call before each sync to avoid stale data) */
+	public clearUserItemsCache(): void {
+		this._userItemsCache = null;
+	}
+
+	/**
 	 * Check if a pull request is opened by a specific user
 	 */
 	public isPullRequestByUser(pullRequest: any, username: string): boolean {

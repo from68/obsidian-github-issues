@@ -107,6 +107,30 @@ export interface IssueProvider {
 		{ owner: { login: string }; name: string; id?: number }[]
 	>;
 
+	// --- User-scoped item fetching (optional) ---
+
+	/**
+	 * Fetch issues across all repos for the authenticated user.
+	 * Each returned item has a `_repoFullName` field ("owner/repo").
+	 * @param filter "assigned" | "created" | "mentioned"
+	 */
+	fetchUserIssues?(
+		filter: string,
+		includeClosed: boolean,
+		daysToKeepClosed: number,
+	): Promise<any[]>;
+
+	/**
+	 * Fetch pull requests / merge requests across all repos for the authenticated user.
+	 * Each returned item has a `_repoFullName` field ("owner/repo").
+	 * @param filter "assigned" | "created" | "mentioned"
+	 */
+	fetchUserPullRequests?(
+		filter: string,
+		includeClosed: boolean,
+		daysToKeepClosed: number,
+	): Promise<any[]>;
+
 	// --- Optional capabilities ---
 
 	/** Whether this provider supports GitHub Projects v2 style tracking. */

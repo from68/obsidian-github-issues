@@ -214,6 +214,7 @@ export default class IssueTrackerPlugin extends Plugin {
 			await this.resolveGitLabProjectIds();
 			await this.fetchIssues();
 			await this.fetchPullRequests();
+			await this.syncUserItems();
 			await this.syncProjects();
 			// Cleanup empty folders for each provider's file manager
 			for (const fm of this.fileManagers.values()) {
@@ -228,6 +229,163 @@ export default class IssueTrackerPlugin extends Plugin {
 			);
 		} finally {
 			this.isSyncing = false;
+		}
+	}
+
+	/**
+	 * Sync issues and pull requests for the authenticated user across all repos
+	 * (provider-level "my items" mode).
+	 */
+	private async syncUserItems() {
+		for (const config of this.settings.providers) {
+			if (!config.enabled || !config.syncUserItems) continue;
+
+			const provider = this.providerRegistry.get(config.id);
+			if (!provider?.isReady()) continue;
+			if (!provider.fetchUserIssues || !provider.fetchUserPullRequests) continue;
+
+			// Clear GitHub's shared cache so each sync gets fresh data
+			if (typeof (provider as any).clearUserItemsCache === "function") {
+				(provider as any).clearUserItemsCache();
+			}
+
+			this.noticeManager.setProviderPrefix(provider.displayName);
+
+			const filter = config.userItemsFilter ?? "assigned";
+			const profileId = config.userItemsProfileId ?? "default";
+			const trackIssues = config.userItemsTrackIssues !== false;
+			const trackPRs = config.userItemsTrackPRs !== false;
+
+			// Collect issues and PRs keyed by repo full name
+			const issuesByRepo = new Map<string, any[]>();
+			const prsByRepo = new Map<string, any[]>();
+
+			if (trackIssues) {
+				try {
+					const issues = await provider.fetchUserIssues(
+						filter,
+						true,
+						this.settings.cleanupClosedIssuesDays,
+					);
+					for (const issue of issues) {
+						const repo = issue._repoFullName;
+						if (!repo) continue;
+						if (!issuesByRepo.has(repo)) issuesByRepo.set(repo, []);
+						issuesByRepo.get(repo)!.push(issue);
+					}
+				} catch (error) {
+					this.noticeManager.error(
+						`Error fetching user issues for ${config.id}`,
+						error,
+					);
+				}
+			}
+
+			if (trackPRs) {
+				try {
+					const prs = await provider.fetchUserPullRequests(
+						filter,
+						true,
+						this.settings.cleanupClosedIssuesDays,
+					);
+					for (const pr of prs) {
+						const repo = pr._repoFullName;
+						if (!repo) continue;
+						if (!prsByRepo.has(repo)) prsByRepo.set(repo, []);
+						prsByRepo.get(repo)!.push(pr);
+					}
+				} catch (error) {
+					this.noticeManager.error(
+						`Error fetching user PRs for ${config.id}`,
+						error,
+					);
+				}
+			}
+
+			const fileManager = this.getFileManagerForProvider(provider);
+
+			// Process each repo's issues
+			for (const [repoFullName, issues] of issuesByRepo) {
+				try {
+					const syntheticRepo = getEffectiveRepoSettings(
+						{
+							...DEFAULT_REPOSITORY_TRACKING,
+							repository: repoFullName,
+							provider: config.id,
+							profileId,
+						},
+						this.settings,
+					);
+
+					if (!syntheticRepo.trackIssues) continue;
+
+					const openIssues = issues.filter(
+						(i: any) => i.state === "open",
+					);
+					const issuesToProcess = syntheticRepo.includeClosedIssues
+						? issues
+						: openIssues;
+					const filtered = fileManager.filterIssues(
+						syntheticRepo,
+						issuesToProcess,
+					);
+					const currentNumbers = new Set(
+						filtered.map((i: any) => i.number.toString()),
+					);
+					await fileManager.createIssueFiles(
+						syntheticRepo,
+						filtered,
+						issues,
+						currentNumbers,
+					);
+				} catch (repoError) {
+					this.noticeManager.error(
+						`Error processing user issues for ${repoFullName}`,
+						repoError,
+					);
+				}
+			}
+
+			// Process each repo's PRs
+			for (const [repoFullName, prs] of prsByRepo) {
+				try {
+					const syntheticRepo = getEffectiveRepoSettings(
+						{
+							...DEFAULT_REPOSITORY_TRACKING,
+							repository: repoFullName,
+							provider: config.id,
+							profileId,
+						},
+						this.settings,
+					);
+
+					if (!syntheticRepo.trackPullRequest) continue;
+
+					const openPRs = prs.filter((p: any) => p.state === "open");
+					const prsToProcess = syntheticRepo.includeClosedPullRequests
+						? prs
+						: openPRs;
+					const filtered = fileManager.filterPullRequests(
+						syntheticRepo,
+						prsToProcess,
+					);
+					const currentNumbers = new Set(
+						filtered.map((p: any) => p.number.toString()),
+					);
+					await fileManager.createPullRequestFiles(
+						syntheticRepo,
+						filtered,
+						prs,
+						currentNumbers,
+					);
+				} catch (repoError) {
+					this.noticeManager.error(
+						`Error processing user PRs for ${repoFullName}`,
+						repoError,
+					);
+				}
+			}
+
 		}
 	}
 
