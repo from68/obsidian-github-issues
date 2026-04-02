@@ -355,6 +355,7 @@ export default class IssueTrackerPlugin extends Plugin {
 							repository: repoFullName,
 							provider: config.id,
 							profileId,
+							trackPullRequest: true,
 						},
 						this.settings,
 					);
