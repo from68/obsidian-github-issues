@@ -349,18 +349,18 @@ export default class IssueTrackerPlugin extends Plugin {
 			// Process each repo's PRs
 			for (const [repoFullName, prs] of prsByRepo) {
 				try {
-					const syntheticRepo = getEffectiveRepoSettings(
-						{
-							...DEFAULT_REPOSITORY_TRACKING,
-							repository: repoFullName,
-							provider: config.id,
-							profileId,
-							trackPullRequest: true,
-						},
-						this.settings,
-					);
-
-					if (!syntheticRepo.trackPullRequest) continue;
+					const syntheticRepo = {
+						...getEffectiveRepoSettings(
+							{
+								...DEFAULT_REPOSITORY_TRACKING,
+								repository: repoFullName,
+								provider: config.id,
+								profileId,
+							},
+							this.settings,
+						),
+						trackPullRequest: true,
+					};
 
 					const openPRs = prs.filter((p: any) => p.state === "open");
 					const prsToProcess = syntheticRepo.includeClosedPullRequests
